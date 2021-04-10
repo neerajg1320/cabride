@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:cabrider/datamodels/address.dart';
 import 'package:cabrider/datamodels/appuser.dart';
 import 'package:cabrider/datamodels/directiondetails.dart';
@@ -39,7 +41,7 @@ class HelperMethods {
       return placeAddress;
     }
 
-    String url = 'https://maps.googleapis.com/maps/api/geocode/json?latlng=${position.latitude},${position.longitude}&key=AIzaSyDyGkF3_aKHfo5KUTP4Pm6lsuXMPK1HwTU';
+    String url = 'https://maps.googleapis.com/maps/api/geocode/json?latlng=${position.latitude},${position.longitude}&key=${geoCodingApiKey}';
 
     var response = await RequestHelper.getRequest(url);
     if (response != 'failed') {
@@ -88,5 +90,11 @@ class HelperMethods {
     double totalFare = baseFare + distanceFare + timeFare;
 
     return totalFare.truncate();
+  }
+
+  static double generateRandomNumber(int max) {
+    var randomGenerator = Random();
+    int radInt = randomGenerator.nextInt(max);
+    return radInt.toDouble();
   }
 }

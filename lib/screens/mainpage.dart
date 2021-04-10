@@ -4,16 +4,20 @@ import 'dart:io';
 import 'package:animated_text_kit/animated_text_kit.dart';
 import 'package:cabrider/brand_colors.dart';
 import 'package:cabrider/datamodels/directiondetails.dart';
+import 'package:cabrider/datamodels/nearbydriver.dart';
 import 'package:cabrider/dataprovider/appdata.dart';
 import 'package:cabrider/globalvariable.dart';
+import 'package:cabrider/helpers/firehelper.dart';
 import 'package:cabrider/helpers/helpermethods.dart';
 import 'package:cabrider/screens/searchpage.dart';
 import 'package:cabrider/styles/styles.dart';
 import 'package:cabrider/widgets/BrandDivider.dart';
+import 'package:cabrider/widgets/NoDriverDialog.dart';
 import 'package:cabrider/widgets/ProgressDialog.dart';
 import 'package:cabrider/widgets/TaxiButton.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_geofire/flutter_geofire.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -44,6 +48,8 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
   Set<Marker> _Markers = {};
   Set<Circle> _Circles = {};
 
+  BitmapDescriptor nearbyIcon;
+
   var geoLocator = Geolocator();
   Position currentPosition;
   DirectionDetails tripDirectionDetails;
@@ -51,6 +57,9 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
   bool drawerCanOpen = true;
 
   DatabaseReference rideRef;
+
+  List<NearbyDriver> availableDrivers;
+  bool nearbyDriversKeysLoaded = false;
 
   Future<Position> _determinePosition() async {
     bool serviceEnabled;
@@ -65,6 +74,7 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
       return Future.error('Location services are disabled.');
     }
 
+    print('Checking Geolocator Permissions');
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -105,6 +115,8 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
     
     String address = await HelperMethods.findCoordinateAddress(position, context) ;
     print(address);
+
+    startGeofireListener();
   }
 
   void showRideDetailSheet() async {
@@ -130,6 +142,21 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
     createRideRequest();
   }
 
+  void createMarker() {
+    if(nearbyIcon == null) {
+      ImageConfiguration imageConfiguration = createLocalImageConfiguration(
+        context,
+        size: Size(2,2),
+      );
+      BitmapDescriptor.fromAssetImage(
+          imageConfiguration,
+          (Platform.isIOS) ? 'images/car_ios.png' : 'images/car_android.png'
+      ).then((icon) {
+        nearbyIcon = icon;
+      });
+    }
+  }
+
   @override
   void initState() {
     // TODO: implement initState
@@ -139,6 +166,8 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    createMarker();
+
     return Scaffold(
         key: scaffoldKey,
         drawer: Container(
@@ -481,6 +510,8 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
                             color: BrandColors.colorGreen,
                             onPressed: () {
                               showRequestingSheet();
+                              availableDrivers = FireHelper.nearbyDriverList;
+                              findDriver();
                             },
                           ),
                         )
@@ -691,6 +722,82 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
     });
   }
 
+  void startGeofireListener() {
+    Geofire.initialize('driversAvailable');
+
+    Geofire.queryAtLocation(currentPosition.latitude, currentPosition.longitude, 20).listen((map) {
+      print(map);
+      if (map != null) {
+        var callBack = map['callBack'];
+
+        //latitude will be retrieved from map['latitude']
+        //longitude will be retrieved from map['longitude']
+
+        switch (callBack) {
+          case Geofire.onKeyEntered:
+            NearbyDriver nearbyDriver = NearbyDriver(
+              key: map['key'],
+              latitude: map['latitude'],
+              longitude: map['longitude'],
+            );
+            FireHelper.nearbyDriverList.add(nearbyDriver);
+
+            if (nearbyDriversKeysLoaded) {
+              updateDriversOnMap();
+            }
+            break;
+
+          case Geofire.onKeyExited:
+            FireHelper.removeFromList(map['key']);
+            updateDriversOnMap();
+            break;
+
+          case Geofire.onKeyMoved:
+          // Update your key's location
+            NearbyDriver nearbyDriver = NearbyDriver(
+              key: map['key'],
+              latitude: map['latitude'],
+              longitude: map['longitude'],
+            );
+
+            FireHelper.updateNearbyLocation(nearbyDriver);
+            updateDriversOnMap();
+            break;
+
+          case Geofire.onGeoQueryReady:
+            print('FireHelper List Length:  ${FireHelper.nearbyDriverList.length}');
+            nearbyDriversKeysLoaded = true;
+            updateDriversOnMap();
+            break;
+        }
+      }
+
+      setState(() {});
+    });
+  }
+
+  void updateDriversOnMap() {
+    setState(() {
+      _Markers.clear();
+    });
+
+    Set<Marker> tempMarkers = Set<Marker>();
+    for (NearbyDriver driver in FireHelper.nearbyDriverList) {
+      LatLng driverPosition = LatLng(driver.latitude, driver.longitude);
+      Marker thisMarker = Marker(
+        markerId: MarkerId('driver${driver.key}'),
+        position: driverPosition,
+        icon: nearbyIcon,
+        rotation: HelperMethods.generateRandomNumber(360),
+      );
+      tempMarkers.add(thisMarker);
+    }
+
+    setState(() {
+      _Markers = tempMarkers;
+    });
+  }
+
   void createRideRequest() {
     rideRef = FirebaseDatabase.instance.reference().child('rideRequest').push();
     var pickup = Provider.of<AppData>(context, listen: false).pickupAddress;
@@ -723,6 +830,7 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
   void cancelRideRequest() {
     rideRef.remove();
   }
+
   resetApp() {
     setState(() {
       polylineCoordinates.clear();
@@ -737,5 +845,26 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
     });
 
     setupPositionLocator();
+  }
+
+  void noDriverFound() {
+    showDialog(
+      barrierDismissible: false,
+      context: context,
+      builder: (BuildContext context) => NoDriverDialog(),
+    );
+  }
+
+  void findDriver() {
+    if (availableDrivers.length <= 0) {
+      cancelRideRequest();
+      resetApp();
+      noDriverFound();
+      return;
+    }
+
+    var driver = availableDrivers[0];
+    availableDrivers.removeAt(0);
+    print('Driver Selected: ${driver.key}');
   }
 }

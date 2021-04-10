@@ -1,4 +1,5 @@
 import 'package:cabrider/datamodels/appuser.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 final String mapKey = "AIzaSyBriaQcD5BVaIoZGg3-sdqZr58MjCsTNhg";
@@ -10,3 +11,4 @@ final CameraPosition googlePlexPosition = CameraPosition(
 );
 
 AppUser currentUserInfo;
+User currentFirebaseUser;
