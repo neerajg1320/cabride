@@ -112,7 +112,8 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
     LatLng pos = LatLng(position.latitude, position.longitude);
     CameraPosition cp = new CameraPosition(target: pos, zoom: 14);
     mapController.animateCamera(CameraUpdate.newCameraPosition(cp));
-    
+
+    // We cannot comment the following code.
     String address = await HelperMethods.findCoordinateAddress(position, context) ;
     print(address);
 
@@ -864,7 +865,23 @@ class _MainPageState extends State<MainPage> with TickerProviderStateMixin {
     }
 
     var driver = availableDrivers[0];
+    notifyDriver(driver);
     availableDrivers.removeAt(0);
     print('Driver Selected: ${driver.key}');
+  }
+
+  void notifyDriver(NearbyDriver driver) {
+    DatabaseReference driverTripRef = FirebaseDatabase.instance.reference().child('drivers/${driver.key}/newtrip');
+    driverTripRef.set(rideRef.key);
+
+    DatabaseReference tokenRef = FirebaseDatabase.instance.reference().child('drivers/${driver.key}/token');
+    tokenRef.once().then((DataSnapshot snapshot) {
+      if (snapshot.value != null) {
+        String token = snapshot.value.toString();
+
+        // Send notification to selected driver
+        HelperMethods.sendNotification(token, context, rideRef.key);
+      }
+    });
   }
 }
